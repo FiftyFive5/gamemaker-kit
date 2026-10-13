@@ -26,6 +26,16 @@ or in one step (Claude Code 2.1.275+):
 /plugin install gamemaker-kit --marketplace FiftyFive5/gamemaker-kit
 ```
 
+## Highlights
+
+- **A playable game in one command** — `gm.py starter` adds a two-player (one keyboard or gamepads) top-down
+  or platformer prototype with a framing camera, pause, saves, and juice you can feel on the first button press.
+- **Levels as text** — draw rooms with `#`, `P`, `M`… in a script; no Room Editor needed.
+- **Project map** — one HTML page with every object, sprite thumbnail, event, room, script and unused asset.
+- **Rename everywhere** — folders, `.yy` references, room instances, collision events and GML in one go.
+- **Aseprite import** — every animation tag becomes its own sprite with the right speed.
+- **Localization** — pull on-screen text into a CSV, translate, and switch language with `lang_set("tr")`.
+
 ## What's inside
 
 ### Skills
@@ -33,6 +43,8 @@ or in one step (Claude Code 2.1.275+):
 | Skill | Use it for |
 |---|---|
 | `gamemaker-assets` | Creating and editing objects, events, scripts, sprites and `.yyp` registrations safely |
+| `gm-starter` | One-command playable starter game, drop-in systems (input, juice, save, level, camera, fade), text levels |
+| `gm-project-tools` | Project map, unused assets, rename everywhere, Aseprite/folder import, localization |
 | `gml-code` | Writing and debugging GML: `with`/`other`, Create timing, event order, Draw vs Draw GUI, reading error messages |
 | `gml-systems` | State machines, top-down and platformer movement, camera, save/load, audio, pause, room transitions |
 | `game-feel` | Screen shake, hit stop, squash and stretch, hit flash, particles, floating text, easing |
@@ -49,6 +61,15 @@ python3 $S/gm.py new-object  MyGame/ obj_enemy --events Create,Step,Draw,Collisi
 python3 $S/gm.py add-event   MyGame/ obj_enemy Alarm0 DrawGUI KeyPress:space
 python3 $S/gm.py new-script  MyGame/ scr_helpers
 python3 $S/gm.py new-sprite  MyGame/ spr_enemy_walk --sheet walk.png --frame-w 32 --frame-h 32 --origin bottom-centre
+python3 $S/gm.py starter     MyGame/ --genre platformer        # then drag obj_game into the first room
+python3 $S/gm.py add-system  MyGame/ input juice camera
+python3 $S/gm.py map         MyGame/                           # writes MyGame/project-map.html
+python3 $S/gm.py unused      MyGame/ [--remove a,b]
+python3 $S/gm.py rename      MyGame/ obj_maymun obj_monkey
+python3 $S/gm.py import-aseprite MyGame/ monkey.json --prefix spr_monkey
+python3 $S/gm.py import-folder   MyGame/ art/ --fps 10
+python3 $S/gm.py extract-strings MyGame/ --langs tr [--apply]
+python3 $S/gm.py build-lang      MyGame/
 python3 $S/check_project.py  MyGame/
 ```
 

@@ -1,23 +1,27 @@
 {
   "name": "gamemaker-kit",
-  "version": "0.2.0",
-  "description": "A GameMaker (GML) toolkit: scaffold objects, events, scripts and sprites by cloning the project's own .yy files (so every IDE version gets its own format), an automatic project checker after every edit, a read-only GML reviewer, and guides for common systems, game feel, local co-op input, performance and Steam release.",
+  "version": "0.3.0",
+  "description": "A GameMaker (GML) toolkit: a playable two-player starter game in one command, text-based levels, drop-in systems, safe scaffolding that clones your project's own .yy format, project map, unused-asset cleanup, rename-everywhere, Aseprite import, localization, automatic project checks, a GML reviewer, and guides for game feel, co-op input, performance and Steam release.",
   "author": {
     "name": "Arda",
     "url": "https://github.com/FiftyFive5"
   },
   "license": "MIT",
   "keywords": [
+    "aseprite",
+    "co-op",
+    "game-development",
+    "game-feel",
+    "gamedev",
     "gamemaker",
     "gml",
-    "gamedev",
-    "game-development",
     "gms2",
-    "yy",
-    "yyp",
+    "level-editor",
+    "localization",
+    "starter",
     "steam",
-    "co-op",
-    "game-feel"
+    "yy",
+    "yyp"
   ],
   "homepage": "https://github.com/FiftyFive5/gamemaker-kit",
   "repository": "https://github.com/FiftyFive5/gamemaker-kit"

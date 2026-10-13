@@ -6,19 +6,24 @@ project, so the output always matches the project's IDE version. Nothing is
 written unless the clone can be re-serialised in exactly the project's own
 style (checked by a round trip on the template).
 
-Commands
-  info        <project>
-  new-object  <project> <name> [--events Create,Step,Draw,DrawGUI,Alarm0,EndStep,
-                                 Collision:obj_wall,KeyPress:A,User0,...]
-                                [--sprite spr_x] [--parent obj_base] [--folder Objects]
-                                [--template obj_x] [--persistent] [--invisible]
-  add-event   <project> <object> <event> [<event> ...]
-  new-script  <project> <name> [--folder Scripts] [--template scr_x]
-  new-sprite  <project> <name> (--frames a.png b.png ... | --sheet s.png --frame-w W --frame-h H
-                                [--count N])
-                                [--origin top-left|top-centre|middle-centre|bottom-centre|...|X,Y]
-                                [--folder Sprites] [--template spr_x]
-Common flags: --dry-run (print what would change, write nothing)
+Commands (run with -h for options)
+  info             <project>
+  new-object       <project> <name> [--events Create,Step,Draw,DrawGUI,Alarm0,Collision:obj_wall,...]
+                                    [--sprite spr_x] [--parent obj_base] [--folder F] [--persistent]
+  add-event        <project> <object> <event> [<event> ...]
+  new-script       <project> <name>
+  new-sprite       <project> <name> (--frames a.png ... | --sheet s.png --frame-w W --frame-h H)
+                                    [--origin preset|X,Y] [--fps N]
+  starter          <project> [--genre topdown|platformer] [--prefix kit_]       (gm_starter.py)
+  add-system       <project> input juice save level camera fade                 (gm_starter.py)
+  import-aseprite  <project> export.json [--prefix spr_x]                       (gm_import.py)
+  import-folder    <project> folder/ [--fps N]                                  (gm_import.py)
+  rename           <project> <old> <new>                                        (gm_refactor.py)
+  map              <project> [-o project-map.html]                              (gm_map.py)
+  unused           <project> [--remove a,b | all]                               (gm_map.py)
+  extract-strings  <project> [--langs tr] [--apply]                             (gm_lang.py)
+  build-lang       <project>                                                    (gm_lang.py)
+Common flag: --dry-run (print what would change, write nothing)
 
 Exit code 0 on success, 1 on a refused change (nothing written), 2 on usage errors.
 Python 3.8+, standard library only (new-sprite needs Pillow).
@@ -183,6 +188,7 @@ class Project:
                 self.resources.append((ref["name"], ref["path"]))
         self.names = {n for n, _ in self.resources}
         self.writes = []  # (path, content-or-bytes)
+        self.moves = []   # (src, dst) applied after all writes
 
     @property
     def ide_version(self):
@@ -309,6 +315,28 @@ class Project:
         if len(found) != 1 or found[0].get("id", found[0]).get("path") != path:
             raise Refused("registering %s in the .yyp did not produce the expected entry" % name)
         self.yyp.text = text
+        self.yyp.data = data
+        self.resources.append((name, path))
+        self.names.add(name)
+        self.writes = [w for w in self.writes if w[0] != self.yyp_path]
+        self.queue(self.yyp_path, text.replace("\n", self.yyp.newline), bom=self.yyp.bom)
+
+    def unregister(self, name):
+        """Remove an asset's line from the .yyp resources list."""
+        lines = self.yyp.text.split("\n")
+        hits = [i for i, l in enumerate(lines)
+                if re.search(r'"name"\s*:\s*%s' % re.escape(json.dumps(name)), l) and '"path"' in l]
+        if len(hits) != 1:
+            raise Refused("could not find exactly one .yyp line for %s" % name)
+        del lines[hits[0]]
+        text = "\n".join(lines)
+        data = json.loads(strip_trailing_commas(text))
+        if any(e.get("id", e).get("name") == name for e in data.get("resources", [])):
+            raise Refused("removing %s from the .yyp did not work" % name)
+        self.yyp.text, self.yyp.data = text, data
+        self.resources = [(n, pth) for n, pth in self.resources if n != name]
+        self.names.discard(name)
+        self.writes = [w for w in self.writes if w[0] != self.yyp_path]
         self.queue(self.yyp_path, text.replace("\n", self.yyp.newline), bom=self.yyp.bom)
 
     def queue(self, path, content, bom=False):
@@ -346,6 +374,17 @@ class Project:
                     if f.read() != content:
                         raise SystemExit("ERROR: %s did not keep the written content (synced folder?)"
                                          % os.path.relpath(path, self.root))
+        for src, dst in self.moves:
+            report.append("%s %s -> %s" % ("would move" if dry_run else "move",
+                                           os.path.relpath(src, self.root), os.path.relpath(dst, self.root)))
+            if dry_run:
+                continue
+            try:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                os.replace(src, dst)
+            except OSError as e:
+                report.append("  could not move (%s); the folder stays where it was and is no longer "
+                              "registered - delete it yourself" % e)
         try:
             print("\n".join(report))
         except BrokenPipeError:
@@ -405,6 +444,8 @@ EVENT_ALIASES = {
     "windowresize": (8, 65),
     "gamestart": (7, 2), "gameend": (7, 3), "roomstart": (7, 4), "roomend": (7, 5),
     "animationend": (7, 7), "outsideroom": (7, 0), "intersectboundary": (7, 1),
+    "asyncsystem": (7, 75), "asynchttp": (7, 62), "asyncsaveload": (7, 72), "asyncsteam": (7, 69),
+    "asyncdialog": (7, 63), "asyncnetworking": (7, 68), "asyncsocial": (7, 70),
 }
 PREFIX = {0: "Create", 1: "Destroy", 2: "Alarm", 3: "Step", 4: "Collision", 5: "Keyboard", 6: "Mouse",
           7: "Other", 8: "Draw", 9: "KeyPress", 10: "KeyRelease", 12: "CleanUp", 13: "Gesture",
@@ -479,7 +520,10 @@ def build_event(project, tpl_event, et, en, other):
     return ev
 
 
-def add_events_to(project, obj_name, obj_dir_rel, data, specs, tpl_event):
+def add_events_to(project, obj_name, obj_dir_rel, data, specs, tpl_event, code=None):
+    """Append events to an object's data and queue their .gml files.
+    code: optional {spec_or_filename: gml text}."""
+    code = code or {}
     existing = {(e.get("eventType"), e.get("eventNum"),
                  (e.get("collisionObjectId") or {}).get("name") if isinstance(e.get("collisionObjectId"), dict) else None)
                 for e in data.get("eventList") or []}
@@ -494,15 +538,219 @@ def add_events_to(project, obj_name, obj_dir_rel, data, specs, tpl_event):
         existing.add((et, en, other))
         fname = event_filename(et, en, other)
         new_files.append(fname)
-        project.queue(project.abs(os.path.join(obj_dir_rel, fname)),
-                      "/// @description %s\n\n" % spec.strip())
-    if any(f.startswith("Collision_") for f in new_files):
-        print("note: collision code files are named Collision_<object>.gml; check the IDE shows the event's "
-              "code after reloading")
+        body = code.get(spec, code.get(fname, "/// @description %s\n\n" % spec.strip()))
+        project.queue(project.abs(os.path.join(obj_dir_rel, fname)), body)
     return new_files
 
 
-# ---------------------------------------------------------------- commands
+# ---------------------------------------------------------------- library API (used by the commands
+# below and by the other gm_*.py modules)
+
+def _object_template(p, requested=None):
+    return p.pick_template("object", requested,
+                           prefer=lambda f: (0 if f.data.get("eventList") else 1,
+                                             len(f.data.get("eventList") or [])))
+
+
+def create_object(p, name, events=(), code=None, sprite=None, parent=None, folder=None,
+                  persistent=False, visible=True, template=None):
+    p.check_new_name(name)
+    tpl = _object_template(p, template)
+    tpl_event = event_template(p, tpl) if events else None
+    old = tpl.data["name"]
+    data = rename_everywhere(copy.deepcopy(tpl.data), old, name)
+    set_name(data, name)
+    data["eventList"] = []
+    if "spriteId" in data:
+        data["spriteId"] = p.asset_ref(sprite, tpl.data.get("spriteId") or {}) if sprite else None
+    elif sprite:
+        raise Refused("this project's object format has no spriteId field")
+    if "spriteMaskId" in data:
+        data["spriteMaskId"] = None
+    if "parentObjectId" in data:
+        data["parentObjectId"] = p.asset_ref(parent, tpl.data.get("parentObjectId") or {}) if parent else None
+    elif parent:
+        raise Refused("this project's object format has no parentObjectId field")
+    if "persistent" in data:
+        data["persistent"] = bool(persistent)
+    if "visible" in data:
+        data["visible"] = bool(visible)
+    for key in ("properties", "overriddenProperties"):
+        if isinstance(data.get(key), list):
+            data[key] = []
+    if "parent" in data:
+        data["parent"] = p.folder_ref(folder, tpl.data.get("parent"))
+    dir_rel = "objects/%s" % name
+    add_events_to(p, name, dir_rel, data, list(events), tpl_event, code)
+    p.queue(p.abs("%s/%s.yy" % (dir_rel, name)), tpl.render(data), bom=tpl.bom)
+    p.register(name, "%s/%s.yy" % (dir_rel, name), old)
+    return old
+
+
+def add_events(p, obj, specs, code=None):
+    f = p.load(obj)
+    f.detect_style(p.peers("object", obj))
+    path = p.path_of(obj)
+    if not path.startswith("objects/"):
+        raise Refused("%s is not an object" % obj)
+    data = copy.deepcopy(f.data)
+    add_events_to(p, obj, os.path.dirname(path), data, specs, event_template(p, f), code)
+    p.queue(f.path, f.render(data), bom=f.bom)
+
+
+def create_script(p, name, code=None, folder=None, template=None):
+    p.check_new_name(name)
+    tpl = p.pick_template("script", template)
+    old = tpl.data["name"]
+    data = rename_everywhere(copy.deepcopy(tpl.data), old, name)
+    set_name(data, name)
+    if "parent" in data:
+        data["parent"] = p.folder_ref(folder, tpl.data.get("parent"))
+    dir_rel = "scripts/%s" % name
+    p.queue(p.abs("%s/%s.yy" % (dir_rel, name)), tpl.render(data), bom=tpl.bom)
+    p.queue(p.abs("%s/%s.gml" % (dir_rel, name)), code if code is not None else (
+        "/// Functions declared here are global and available from game start.\n\n"
+        "function %s() {\n\n}\n" % name))
+    p.register(name, "%s/%s.yy" % (dir_rel, name), old)
+    return old
+
+
+ORIGINS = {"top-left": 0, "top-centre": 1, "top-right": 2, "middle-left": 3, "middle-centre": 4,
+           "middle-right": 5, "bottom-left": 6, "bottom-centre": 7, "bottom-right": 8}
+
+
+def _find_keyframes(seq):
+    for track in seq.get("tracks") or []:
+        kfs = track.get("keyframes")
+        if isinstance(kfs, dict) and isinstance(kfs.get("Keyframes"), list):
+            return kfs["Keyframes"]
+    return None
+
+
+def need_pillow():
+    try:
+        from PIL import Image  # noqa: F401
+    except ImportError:
+        raise Refused("this command needs Pillow: python3 -m pip install Pillow")
+
+
+def slice_sheet(sheet, w, h, count=None):
+    imgs = []
+    for r in range(sheet.height // h):
+        for c in range(sheet.width // w):
+            imgs.append(sheet.crop((c * w, r * h, c * w + w, r * h + h)))
+    if count:
+        return imgs[:count]
+    while imgs and imgs[-1].getbbox() is None:
+        imgs.pop()  # drop empty cells at the end of the sheet
+    return imgs
+
+
+def _sprite_template(p, requested=None):
+    def usable(f):
+        return 0 if len(f.data.get("layers") or []) == 1 and f.data.get("frames") else 1
+    tpl = p.pick_template("sprite", requested, prefer=usable)
+    t = tpl.data
+    frames, layers = t.get("frames") or [], t.get("layers") or []
+    seq = t.get("sequence")
+    if not frames or len(layers) != 1 or not isinstance(seq, dict):
+        raise Refused("template %s must have at least one frame and exactly one layer" % t["name"])
+    kfs = _find_keyframes(seq)
+    if not kfs:
+        raise Refused("template %s has no sprite-frame keyframes in its sequence" % t["name"])
+    f0, l0, k0 = frames[0].get("name"), layers[0].get("name"), kfs[0].get("id")
+    for g in (f0, l0, k0):
+        if not (isinstance(g, str) and GUID_RE.match(g)):
+            raise Refused("template %s uses an id format this script does not recognise" % t["name"])
+    if not contains_string(kfs[0], f0):
+        raise Refused("template %s's first keyframe does not point at its first frame" % t["name"])
+    tdir = os.path.dirname(tpl.path)
+    if not (os.path.isfile(os.path.join(tdir, f0 + ".png")) and
+            os.path.isfile(os.path.join(tdir, "layers", f0, l0 + ".png"))):
+        raise Refused("template %s's image files are not laid out as <frame>.png and "
+                      "layers/<frame>/<layer>.png" % t["name"])
+    return tpl
+
+
+def create_sprite(p, name, imgs, origin="middle-centre", folder=None, template=None, fps=None):
+    """imgs: list of same-size PIL RGBA images. fps: playback speed in frames per second (optional)."""
+    import io
+    p.check_new_name(name)
+    if not imgs:
+        raise Refused("%s: no frames" % name)
+    w, h = imgs[0].size
+    if any(i.size != (w, h) for i in imgs):
+        raise Refused("%s: all frames must have the same size" % name)
+    tpl = _sprite_template(p, template)
+    t = tpl.data
+    old = t["name"]
+    frames, layers = t["frames"], t["layers"]
+    kfs = _find_keyframes(t["sequence"])
+    f0, l0, k0 = frames[0]["name"], layers[0]["name"], kfs[0]["id"]
+
+    data = copy.deepcopy(t)
+    layer_id = str(uuid.uuid4())
+    new_frames, new_kfs, frame_ids = [], [], []
+    for i in range(len(imgs)):
+        fid = str(uuid.uuid4())
+        frame_ids.append(fid)
+        new_frames.append(replace_strings(copy.deepcopy(frames[0]), {f0: fid, l0: layer_id}))
+        kf = replace_strings(copy.deepcopy(kfs[0]), {f0: fid, k0: str(uuid.uuid4())})
+        if "Key" in kf:
+            kf["Key"] = float(i)
+        new_kfs.append(kf)
+    data["frames"] = new_frames
+    data["layers"] = [replace_strings(copy.deepcopy(layers[0]), {l0: layer_id})]
+    _find_keyframes(data["sequence"])[:] = new_kfs
+    data["sequence"]["length"] = float(len(imgs))
+    data = rename_everywhere(data, old, name)
+    set_name(data, name)
+    if isinstance(data.get("sequence"), dict) and data["sequence"].get("name") == name:
+        set_name(data["sequence"], name)
+    for g in [fr.get("name") for fr in frames] + [l0] + [k.get("id") for k in kfs]:
+        if g and contains_string(data, g):
+            raise Refused("a template id survived the copy; refusing to write a sprite that shares ids")
+    data["width"], data["height"] = w, h
+    for k, v in (("bbox_left", 0), ("bbox_top", 0), ("bbox_right", w - 1), ("bbox_bottom", h - 1)):
+        if k in data:
+            data[k] = v
+    origin = origin or "middle-centre"
+    if origin in ORIGINS:
+        code = ORIGINS[origin]
+        ox = {0: 0, 1: w // 2, 2: w}[code % 3]
+        oy = {0: 0, 1: h // 2, 2: h}[code // 3]
+    else:
+        try:
+            ox, oy = [int(v) for v in origin.split(",")]
+        except ValueError:
+            raise Refused("origin must be a preset (%s) or X,Y" % ", ".join(ORIGINS))
+        code = 9
+    if "origin" in data:
+        data["origin"] = code
+    if "xorigin" in data["sequence"]:
+        data["sequence"]["xorigin"], data["sequence"]["yorigin"] = ox, oy
+    seq = data["sequence"]
+    if fps and "playbackSpeed" in seq:
+        if seq.get("playbackSpeedType", 0) == 0:          # 0 = frames per second
+            seq["playbackSpeed"] = float(round(fps, 2))
+        else:
+            print("note: %s uses frames-per-game-frame playback; fps from the import was not applied" % name)
+    if "parent" in data:
+        data["parent"] = p.folder_ref(folder, t.get("parent"))
+
+    dir_rel = "sprites/%s" % name
+    p.queue(p.abs("%s/%s.yy" % (dir_rel, name)), tpl.render(data), bom=tpl.bom)
+    for fid, img in zip(frame_ids, imgs):
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        png = buf.getvalue()
+        p.queue(p.abs("%s/%s.png" % (dir_rel, fid)), png)
+        p.queue(p.abs("%s/layers/%s/%s.png" % (dir_rel, fid, layer_id)), png)
+    p.register(name, "%s/%s.yy" % (dir_rel, name), old)
+    return old
+
+
+# ---------------------------------------------------------------- basic commands
 
 
 def cmd_info(p, args):
@@ -525,210 +773,50 @@ def cmd_info(p, args):
 
 
 def cmd_new_object(p, args):
-    p.check_new_name(args.name)
-    tpl = p.pick_template("object", args.template,
-                          prefer=lambda f: (0 if f.data.get("eventList") else 1,
-                                            len(f.data.get("eventList") or [])))
-    tpl_event = event_template(p, tpl) if args.events else None
-    old = tpl.data["name"]
-    data = rename_everywhere(copy.deepcopy(tpl.data), old, args.name)
-    set_name(data, args.name)
-    data["eventList"] = []
-    if "spriteId" in data:
-        data["spriteId"] = p.asset_ref(args.sprite, tpl.data.get("spriteId") or {}) if args.sprite else None
-    elif args.sprite:
-        raise Refused("this project's object format has no spriteId field")
-    if "spriteMaskId" in data:
-        data["spriteMaskId"] = None
-    if "parentObjectId" in data:
-        data["parentObjectId"] = (p.asset_ref(args.parent, tpl.data.get("parentObjectId") or {})
-                                  if args.parent else None)
-    if "persistent" in data:
-        data["persistent"] = bool(args.persistent)
-    if "visible" in data:
-        data["visible"] = not args.invisible
-    for key in ("properties", "overriddenProperties"):
-        if isinstance(data.get(key), list):
-            data[key] = []
-    if "parent" in data:
-        data["parent"] = p.folder_ref(args.folder, tpl.data.get("parent"))
-    dir_rel = "objects/%s" % args.name
-    files = add_events_to(p, args.name, dir_rel, data, args.events or [], tpl_event) if args.events else []
-    p.queue(p.abs("%s/%s.yy" % (dir_rel, args.name)), tpl.render(data), bom=tpl.bom)
-    p.register(args.name, "%s/%s.yy" % (dir_rel, args.name), old)
+    old = create_object(p, args.name, args.events or [], sprite=args.sprite, parent=args.parent,
+                        folder=args.folder, persistent=args.persistent, visible=not args.invisible,
+                        template=args.template)
     print("template: %s" % old)
     if not args.sprite:
         print("note: no sprite set - the object will be invisible in the Room Editor")
-    return files
 
 
 def cmd_add_event(p, args):
-    f = p.load(args.object)
-    f.detect_style(p.peers("object", args.object))
-    path = p.path_of(args.object)
-    if not path.startswith("objects/"):
-        raise Refused("%s is not an object" % args.object)
-    data = copy.deepcopy(f.data)
-    tpl_event = event_template(p, f)
-    add_events_to(p, args.object, os.path.dirname(path), data, args.events, tpl_event)
-    p.queue(f.path, f.render(data), bom=f.bom)
+    add_events(p, args.object, args.events)
 
 
 def cmd_new_script(p, args):
-    p.check_new_name(args.name)
-    tpl = p.pick_template("script", args.template)
-    old = tpl.data["name"]
-    data = rename_everywhere(copy.deepcopy(tpl.data), old, args.name)
-    set_name(data, args.name)
-    if "parent" in data:
-        data["parent"] = p.folder_ref(args.folder, tpl.data.get("parent"))
-    dir_rel = "scripts/%s" % args.name
-    p.queue(p.abs("%s/%s.yy" % (dir_rel, args.name)), tpl.render(data), bom=tpl.bom)
-    p.queue(p.abs("%s/%s.gml" % (dir_rel, args.name)),
-            "/// Functions declared here are global and available from game start.\n\n"
-            "function %s() {\n\n}\n" % args.name)
-    p.register(args.name, "%s/%s.yy" % (dir_rel, args.name), old)
-    print("template: %s" % old)
-
-
-ORIGINS = {"top-left": 0, "top-centre": 1, "top-right": 2, "middle-left": 3, "middle-centre": 4,
-           "middle-right": 5, "bottom-left": 6, "bottom-centre": 7, "bottom-right": 8}
-
-
-def _find_keyframes(seq):
-    for track in seq.get("tracks") or []:
-        kfs = track.get("keyframes")
-        if isinstance(kfs, dict) and isinstance(kfs.get("Keyframes"), list):
-            return kfs["Keyframes"]
-    return None
-
-
-def load_frames(args):
-    try:
-        from PIL import Image
-    except ImportError:
-        raise Refused("new-sprite needs Pillow: python3 -m pip install Pillow")
-    if args.frames:
-        imgs = [Image.open(f).convert("RGBA") for f in args.frames]
-    else:
-        sheet = Image.open(args.sheet).convert("RGBA")
-        w, h = args.frame_w, args.frame_h
-        cols, rows = sheet.width // w, sheet.height // h
-        imgs = []
-        for r in range(rows):
-            for c in range(cols):
-                imgs.append(sheet.crop((c * w, r * h, c * w + w, r * h + h)))
-        if args.count:
-            imgs = imgs[:args.count]
-        else:
-            while imgs and imgs[-1].getbbox() is None:
-                imgs.pop()  # drop empty cells at the end of the sheet
-    if not imgs:
-        raise Refused("no frames found")
-    size = imgs[0].size
-    if any(i.size != size for i in imgs):
-        raise Refused("all frames must have the same size")
-    return imgs
+    print("template: %s" % create_script(p, args.name, folder=args.folder, template=args.template))
 
 
 def cmd_new_sprite(p, args):
-    p.check_new_name(args.name)
-    imgs = load_frames(args)
-    w, h = imgs[0].size
-
-    def usable(f):
-        return 0 if len(f.data.get("layers") or []) == 1 and f.data.get("frames") else 1
-    tpl = p.pick_template("sprite", args.template, prefer=usable)
-    t = tpl.data
-    old = t["name"]
-    frames, layers = t.get("frames") or [], t.get("layers") or []
-    seq = t.get("sequence")
-    if not frames or len(layers) != 1 or not isinstance(seq, dict):
-        raise Refused("template %s must have at least one frame and exactly one layer" % old)
-    kfs = _find_keyframes(seq)
-    if not kfs:
-        raise Refused("template %s has no sprite-frame keyframes in its sequence" % old)
-    f0, l0, k0 = frames[0].get("name"), layers[0].get("name"), kfs[0].get("id")
-    for g in (f0, l0, k0):
-        if not (isinstance(g, str) and GUID_RE.match(g)):
-            raise Refused("template %s uses an id format this script does not recognise" % old)
-    if not contains_string(kfs[0], f0):
-        raise Refused("template %s's first keyframe does not point at its first frame" % old)
-    tdir = os.path.dirname(tpl.path)
-    if not (os.path.isfile(os.path.join(tdir, f0 + ".png")) and
-            os.path.isfile(os.path.join(tdir, "layers", f0, l0 + ".png"))):
-        raise Refused("template %s's image files are not laid out as <frame>.png and "
-                      "layers/<frame>/<layer>.png" % old)
-
-    data = copy.deepcopy(t)
-    layer_id = str(uuid.uuid4())
-    new_frames, new_kfs, frame_ids = [], [], []
-    for i in range(len(imgs)):
-        fid = str(uuid.uuid4())
-        frame_ids.append(fid)
-        new_frames.append(replace_strings(copy.deepcopy(frames[0]), {f0: fid, l0: layer_id}))
-        kf = replace_strings(copy.deepcopy(kfs[0]), {f0: fid, k0: str(uuid.uuid4())})
-        if "Key" in kf:
-            kf["Key"] = float(i)
-        new_kfs.append(kf)
-    data["frames"] = new_frames
-    data["layers"] = [replace_strings(copy.deepcopy(layers[0]), {l0: layer_id})]
-    _find_keyframes(data["sequence"])[:] = new_kfs
-    data["sequence"]["length"] = float(len(imgs))
-    data = rename_everywhere(data, old, args.name)
-    set_name(data, args.name)
-    if isinstance(data.get("sequence"), dict) and data["sequence"].get("name") == args.name:
-        set_name(data["sequence"], args.name)
-    for g in [fr.get("name") for fr in frames] + [l0] + [k.get("id") for k in kfs]:
-        if g and contains_string(data, g):
-            raise Refused("a template id survived the copy; refusing to write a sprite that shares ids")
-    data["width"], data["height"] = w, h
-    for k, v in (("bbox_left", 0), ("bbox_top", 0), ("bbox_right", w - 1), ("bbox_bottom", h - 1)):
-        if k in data:
-            data[k] = v
-    origin = args.origin or "middle-centre"
-    if origin in ORIGINS:
-        code = ORIGINS[origin]
-        ox = {0: 0, 1: w // 2, 2: w}[code % 3]
-        oy = {0: 0, 1: h // 2, 2: h}[code // 3]
+    need_pillow()
+    from PIL import Image
+    if args.frames:
+        imgs = [Image.open(f).convert("RGBA") for f in args.frames]
     else:
-        try:
-            ox, oy = [int(v) for v in origin.split(",")]
-        except ValueError:
-            raise Refused("origin must be a preset (%s) or X,Y" % ", ".join(ORIGINS))
-        code = 9
-    if "origin" in data:
-        data["origin"] = code
-    if "xorigin" in data["sequence"]:
-        data["sequence"]["xorigin"], data["sequence"]["yorigin"] = ox, oy
-    if "parent" in data:
-        data["parent"] = p.folder_ref(args.folder, t.get("parent"))
-
-    dir_rel = "sprites/%s" % args.name
-    p.queue(p.abs("%s/%s.yy" % (dir_rel, args.name)), tpl.render(data), bom=tpl.bom)
-    import io
-    for fid, img in zip(frame_ids, imgs):
-        buf = io.BytesIO()
-        img.save(buf, "PNG")
-        png = buf.getvalue()
-        p.queue(p.abs("%s/%s.png" % (dir_rel, fid)), png)
-        p.queue(p.abs("%s/layers/%s/%s.png" % (dir_rel, fid, layer_id)), png)
-    p.register(args.name, "%s/%s.yy" % (dir_rel, args.name), old)
-    print("template: %s  frames: %d  size: %dx%d  origin: %s" % (old, len(imgs), w, h, origin))
+        imgs = slice_sheet(Image.open(args.sheet).convert("RGBA"), args.frame_w, args.frame_h, args.count)
+    old = create_sprite(p, args.name, imgs, args.origin, args.folder, args.template, args.fps)
+    print("template: %s  frames: %d  size: %dx%d  origin: %s" % (
+        old, len(imgs), imgs[0].size[0], imgs[0].size[1], args.origin or "middle-centre"))
     print("note: check origin and collision mask in the Sprite Editor")
 
 
-def main(argv=None):
+# ---------------------------------------------------------------- CLI
+
+
+def build_parser():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    def common(sp):
+    def common(name, **kw):
+        sp = sub.add_parser(name, **kw)
         sp.add_argument("project")
         sp.add_argument("--dry-run", action="store_true")
         return sp
 
-    common(sub.add_parser("info"))
-    sp = common(sub.add_parser("new-object"))
+    common("info")
+    sp = common("new-object")
     sp.add_argument("name")
     sp.add_argument("--events", type=lambda s: [x for x in s.split(",") if x.strip()])
     sp.add_argument("--sprite")
@@ -737,14 +825,14 @@ def main(argv=None):
     sp.add_argument("--template")
     sp.add_argument("--persistent", action="store_true")
     sp.add_argument("--invisible", action="store_true")
-    sp = common(sub.add_parser("add-event"))
+    sp = common("add-event")
     sp.add_argument("object")
     sp.add_argument("events", nargs="+")
-    sp = common(sub.add_parser("new-script"))
+    sp = common("new-script")
     sp.add_argument("name")
     sp.add_argument("--folder")
     sp.add_argument("--template")
-    sp = common(sub.add_parser("new-sprite"))
+    sp = common("new-sprite")
     sp.add_argument("name")
     g = sp.add_mutually_exclusive_group(required=True)
     g.add_argument("--frames", nargs="+")
@@ -753,21 +841,39 @@ def main(argv=None):
     sp.add_argument("--frame-h", type=int)
     sp.add_argument("--count", type=int)
     sp.add_argument("--origin")
+    sp.add_argument("--fps", type=float)
     sp.add_argument("--folder")
     sp.add_argument("--template")
+
+    # extension modules register their own subcommands
+    handlers = {"info": cmd_info, "new-object": cmd_new_object, "add-event": cmd_add_event,
+                "new-script": cmd_new_script, "new-sprite": cmd_new_sprite}
+    for modname in ("gm_starter", "gm_import", "gm_refactor", "gm_map", "gm_lang"):
+        try:
+            mod = __import__(modname)
+        except ImportError as e:
+            sys.stderr.write("warning: %s not available (%s)\n" % (modname, e))
+            continue
+        handlers.update(mod.register_cli(common))
+    return ap, handlers
+
+
+READ_ONLY = {"info", "map", "unused"}
+
+
+def main(argv=None):
+    ap, handlers = build_parser()
     args = ap.parse_args(argv)
     if args.cmd == "new-sprite" and args.sheet and not (args.frame_w and args.frame_h):
         ap.error("--sheet needs --frame-w and --frame-h")
-
     try:
         p = Project(args.project)
-        {"info": cmd_info, "new-object": cmd_new_object, "add-event": cmd_add_event,
-         "new-script": cmd_new_script, "new-sprite": cmd_new_sprite}[args.cmd](p, args)
+        handlers[args.cmd](p, args)
     except Refused as e:
         print("REFUSED: %s" % e)
         print("Nothing was written.")
         return 1
-    if args.cmd != "info":
+    if p.writes or p.moves:
         p.commit(args.dry_run)
         if not args.dry_run:
             print("done - run check_project.py, then reload the project in the IDE")
@@ -775,6 +881,8 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    sys.modules.setdefault("gm", sys.modules["__main__"])   # extension modules share this module's classes
     try:
         sys.exit(main())
     except BrokenPipeError:  # output piped into head etc.; all writes already finished

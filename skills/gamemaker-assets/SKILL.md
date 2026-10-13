@@ -39,6 +39,10 @@ Collision:<object>, KeyPress:<key>, KeyRelease:<key>, Keyboard:<key>. `new-sprit
 (`python3 -m pip install Pillow`); it slices sheets, drops empty trailing cells, and writes both the frame and
 layer images.
 
+More commands live in the same script — playable starter kit and drop-in systems (`gm-starter` skill),
+project map, unused assets, rename, Aseprite/folder import and localization (`gm-project-tools` skill).
+`python3 <skill>/scripts/gm.py -h` lists them all.
+
 When the script refuses, read its reason and follow it (usually: add one asset or event of that kind in the IDE
 so a template exists, or pass `--template` with an asset that has the needed content). Fall back to manual edits
 following the rule below only for things the script does not cover (rooms, sounds, renames). Run
