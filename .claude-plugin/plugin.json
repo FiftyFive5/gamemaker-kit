@@ -1,0 +1,24 @@
+{
+  "name": "gamemaker-kit",
+  "version": "0.2.0",
+  "description": "A GameMaker (GML) toolkit: scaffold objects, events, scripts and sprites by cloning the project's own .yy files (so every IDE version gets its own format), an automatic project checker after every edit, a read-only GML reviewer, and guides for common systems, game feel, local co-op input, performance and Steam release.",
+  "author": {
+    "name": "Arda",
+    "url": "https://github.com/FiftyFive5"
+  },
+  "license": "MIT",
+  "keywords": [
+    "gamemaker",
+    "gml",
+    "gamedev",
+    "game-development",
+    "gms2",
+    "yy",
+    "yyp",
+    "steam",
+    "co-op",
+    "game-feel"
+  ],
+  "homepage": "https://github.com/FiftyFive5/gamemaker-kit",
+  "repository": "https://github.com/FiftyFive5/gamemaker-kit"
+}
