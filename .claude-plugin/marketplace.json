@@ -1,0 +1,17 @@
+{
+  "name": "gamemaker-kit",
+  "owner": {
+    "name": "FiftyFive5",
+    "url": "https://github.com/FiftyFive5"
+  },
+  "metadata": {
+    "description": "Claude plugin for GameMaker / GML game development"
+  },
+  "plugins": [
+    {
+      "name": "gamemaker-kit",
+      "source": "./",
+      "description": "GameMaker (GML) toolkit: template-based asset scaffolding, automatic project checks, a GML reviewer, and guides for systems, game feel, local co-op, performance and Steam release."
+    }
+  ]
+}
